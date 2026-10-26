@@ -130,6 +130,7 @@ test("=CLJ cell function", () => {
   assert.throws(() => gasbb.cell('(throw "boom")', []), /CLJ: boom/);
   assert.deepEqual(plain(gasbb.cell("[{:a 1 :b 2} {:b 3 :a 4} {:a 5}]", [])),
                    [["a", "b"], [1, 2], [4, 3], [5, ""]]);
+  assert.equal(gasbb.cell("[{} {}]", []), "");
 });
 
 test("dates pass through", () => {
@@ -165,6 +166,22 @@ test("replEval keeps only def-like top-level forms", () => {
   const r = gasbb.replEval([], ';; helper\n(def a 1) (println :side-effect) (defn f [] a) (+ 1 2)');
   assert.deepEqual(Array.from(r.keep), ["(def a 1)", "(defn f [] a)"]);
   assert.equal(r.value, "3");
+});
+
+test("replEval keeps forms with ::alias keywords, alias/refer, replay errors say so", () => {
+  const { gasbb } = newRuntime();
+  const r = gasbb.replEval([], "(ns foo (:require [clojure.string :as s])) (def k ::s/x)");
+  assert.deepEqual(Array.from(r.keep), ["(ns foo (:require [clojure.string :as s]))", "(def k ::s/x)"]);
+  assert.equal(gasbb.replEval(Array.from(r.keep), "k").value, ":clojure.string/x");
+  const r2 = gasbb.replEval([], "(alias 'str 'clojure.string) (def j ::str/a)");
+  assert.equal(r2.keep.length, 2);
+  assert.equal(gasbb.replEval(Array.from(r2.keep), "j").value, ":clojure.string/a");
+  assert.match(gasbb.replEval(["(def z (inc nope))"], "1").error.message, /While replaying an earlier form/);
+});
+
+test("reader conditionals take the :cljs branch", () => {
+  const { gasbb } = newRuntime();
+  assert.equal(gasbb.evalString("#?(:cljs 1 :clj 2)"), 1);
 });
 
 test("replEval shows ex-info data and non-Error throws", () => {

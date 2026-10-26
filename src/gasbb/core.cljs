@@ -75,6 +75,8 @@
   (delay
     (sci/init
      {:classes {'js js/globalThis :allow :all}
+      ;; like nbb and scittle: #?(:cljs ...) branches apply, also in .cljc files
+      :features #{:cljs}
       :load-fn load-fn
       :namespaces
       {'gasbb.core {'->js (sci/copy-var convert/->js gasbb-ns)
@@ -193,24 +195,29 @@
   (and (seq? form)
        (symbol? (first form))
        (let [n (name (first form))]
-         (or (contains? #{"ns" "in-ns" "require" "import"} n)
+         (or (contains? #{"ns" "in-ns" "require" "import" "alias" "refer" "use"
+                          "refer-clojure"} n)
              (str/starts-with? n "def")))))
 
 (defn- def-sources
   "Source strings of the top-level ns/require/def... forms in `code`: what a
   REPL session has to replay to get back to its state. Other top-level forms
-  are left out, so their side effects don't run again."
-  [code]
+  are left out, so their side effects don't run again. `code` is parsed in
+  `the-ns`, the namespace it was evaluated in, so `::alias/kw` resolves; if it
+  still can't be parsed, all of it is kept rather than losing definitions."
+  [the-ns code]
   (try
-    (let [rdr (sci/source-reader code)]
-      (loop [acc []]
-        (let [[form src] (sci/parse-next+string @ctx rdr)]
-          (if (= ::sci/eof form)
-            acc
-            (recur (cond-> acc
-                     ;; the buffer also holds comments in front of the form
-                     (def-form? form) (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" "")))))))))
-    (catch :default _ [])))
+    (sci/binding [sci/ns the-ns]
+      (let [rdr (sci/source-reader code)]
+        (loop [acc []]
+          (let [[form src] (sci/parse-next+string @ctx rdr)]
+            (if (= ::sci/eof form)
+              acc
+              (recur (cond-> acc
+                       ;; the buffer also holds comments in front of the form
+                       (def-form? form)
+                       (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" ""))))))))))
+    (catch :default _ [code])))
 
 (defn- eval-in
   "Evaluates `s` starting in namespace `the-ns`; returns {:val :ns}."
@@ -230,15 +237,20 @@
                   sio/print-newline true]
       (try
         (let [the-ns (reduce (fn [the-ns h]
-                               (:ns (sci/binding [sci/print-fn identity
-                                                  sci/print-err-fn identity]
-                                      (eval-in the-ns h))))
+                               (try
+                                 (:ns (sci/binding [sci/print-fn identity
+                                                    sci/print-err-fn identity]
+                                        (eval-in the-ns h)))
+                                 (catch :default e
+                                   (throw (ex-info (str "While replaying an earlier form (Reset forgets them): "
+                                                        (error-message e))
+                                                   {:form h})))))
                              nil history)
               {v :val the-ns :ns} (eval-in the-ns code)]
           #js {:value (binding [*print-length* 100] (pr-str v))
                :out (str/join @out)
                :ns (str the-ns)
-               :keep (into-array (def-sources code))})
+               :keep (into-array (def-sources the-ns code))})
         (catch :default e
           #js {:error (clj->js (error-data e))
                :out (str/join @out)})))))

@@ -65,9 +65,11 @@
         ;; a table: header row of keys, then one aligned row per map
         (every? map? xs)
         (let [ks (distinct (mapcat keys xs))]
-          (->js (into [(mapv cell-scalar ks)]
+          (if (empty? ks)
+            ""
+            (->js (into [(mapv cell-scalar ks)]
                       (map (fn [m] (mapv #(cell-scalar (get m %)) ks)))
-                      xs)))
+                      xs))))
         (some #(or (sequential? %) (set? %) (map? %)) xs)
         (->js (pad (map (fn [r] (if (map? r) (row (vals r)) (row r))) xs)))
         :else (->js (mapv (comp vector cell-scalar) xs))))

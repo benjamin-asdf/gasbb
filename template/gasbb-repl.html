@@ -10,7 +10,6 @@
   #log { flex: 1; overflow-y: auto; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
   .entry { border-bottom: 1px solid var(--line); padding: 6px 0; white-space: pre-wrap; word-break: break-word; }
   .in { color: var(--muted); }
-  .in::before { content: "user=> "; }
   .out { color: var(--muted); font-style: italic; }
   .val { color: var(--fg); }
   .err { color: var(--err); }
@@ -39,6 +38,7 @@
   // the top-level ns/require/def... forms of earlier evals here (the server
   // picks them out, r.keep) and replays them first.
   var defs = [];
+  var currentNs = "user";
   var log = document.getElementById("log");
   var code = document.getElementById("code");
   var btn = document.getElementById("eval");
@@ -56,7 +56,7 @@
     if (!src.trim()) return;
     var entry = document.createElement("div");
     entry.className = "entry";
-    entry.appendChild(add("in", src));
+    entry.appendChild(add("in", currentNs + "=> " + src));
     log.appendChild(entry);
     btn.disabled = true;
     var t0 = Date.now();
@@ -71,6 +71,7 @@
         } else {
           entry.appendChild(add("val", r.value));
           defs = defs.concat(r.keep || []);
+          currentNs = r.ns || currentNs;
           code.value = "";
         }
         entry.appendChild(add("ms", (Date.now() - t0) + " ms"));
@@ -91,6 +92,7 @@
   });
   document.getElementById("reset").addEventListener("click", function () {
     defs = [];
+    currentNs = "user";
     hint.textContent = "Ctrl+Enter to eval · defs: 0";
   });
   code.focus();
