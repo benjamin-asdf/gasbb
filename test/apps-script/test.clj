@@ -1,0 +1,13 @@
+(ns test
+  (:require [gasbb.sheets :as sheets]
+            [util.text :as text]))
+
+(defn info [] {:loaded true :shout (text/shout "hi")})
+
+(defn roundtrip []
+  (let [ss (sheets/active)
+        sh (or (.getSheetByName ss "gasbb-test") (.insertSheet ss "gasbb-test"))]
+    (.clear sh)
+    (sheets/write-rows! sh [["Name" "Age"] ["Ada" 36] ["Bob" 20] ["Cy" 44]])
+    (->> (sheets/read-maps sh)
+         (filter #(> (:age %) 30)))))

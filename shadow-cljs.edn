@@ -1,0 +1,12 @@
+{:deps false
+ :source-paths ["src"]
+ :dependencies [[org.babashka/sci "0.15.59"]]
+ :jvm-opts ["-Xmx4g"]
+ :builds
+ {:gasbb {:target :browser
+        :output-dir "dist"
+        :asset-path "."
+        :modules {:gasbb {:init-fn gasbb.core/init}}
+        :compiler-options {:output-feature-set :es2020
+                           :optimizations :advanced}
+        :release {:compiler-options {:infer-externs :auto}}}}}

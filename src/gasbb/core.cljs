@@ -1,0 +1,196 @@
+(ns gasbb.core
+  "Clojure for Google Apps Script: SCI running inside the Apps Script V8 runtime.
+
+  Clojure source lives in the Apps Script project as HTML files (`main.clj`
+  is stored as `main.clj.html`) and is read at runtime through
+  `HtmlService.createHtmlOutputFromFile`. Every Apps Script execution starts
+  a fresh runtime, so gasbb loads lazily, once per execution."
+  (:require [clojure.string :as str]
+            [gasbb.convert :as convert]
+            [gasbb.sheets :as sheets]
+            [sci.core :as sci]
+            [sci.impl.io :as sio]))
+
+(def version "0.1.0")
+
+;; ---------------------------------------------------------------------------
+;; Reading project files
+
+(defn- html-file-reader [file-name]
+  (.getContent (.createHtmlOutputFromFile js/HtmlService file-name)))
+
+(def ^:private file-reader
+  "Reads a project file by name. Swapped out with `setFileReader` when gasbb
+  is used as an Apps Script library: HtmlService in a library only sees the
+  library's own files, not the calling project's."
+  (atom html-file-reader))
+
+(defn- read-project-file
+  "Returns the source of the project file `file-name` (e.g. \"main.clj\" or
+  \"lib/util.clj\") or nil when there is no such file."
+  [file-name]
+  (try
+    (@file-reader file-name)
+    (catch :default _ nil)))
+
+(defn- ns->file-names [ns-sym]
+  (let [base (-> (name ns-sym) (str/replace "." "/") (str/replace "-" "_"))]
+    [(str base ".clj") (str base ".cljc") (str base ".cljs")]))
+
+(defn- load-fn [{:keys [namespace]}]
+  (some (fn [file-name]
+          (when-let [source (read-project-file file-name)]
+            {:file file-name :source source}))
+        (ns->file-names namespace)))
+
+;; ---------------------------------------------------------------------------
+;; Context
+
+(def ^:private line-buf (atom ""))
+
+(defn- log-print
+  "print-fn that buffers partial output and sends complete lines to
+  console.log."
+  [s]
+  (let [lines (str/split (str @line-buf s) #"\n" -1)]
+    (doseq [l (butlast lines)] (.log js/console l))
+    (reset! line-buf (last lines))))
+
+(defn- flush-log []
+  (when-not (= "" @line-buf)
+    (.log js/console @line-buf)
+    (reset! line-buf "")))
+
+(def ^:private gasbb-ns (sci/create-ns 'gasbb.core nil))
+(def ^:private sheets-ns (sci/create-ns 'gasbb.sheets nil))
+
+(def ^:private ctx
+  (delay
+    (sci/init
+     {:classes {'js js/globalThis :allow :all}
+      :load-fn load-fn
+      :namespaces
+      {'gasbb.core {'->js (sci/copy-var convert/->js gasbb-ns)
+                  '->clj (sci/copy-var convert/->clj gasbb-ns)
+                  'version (sci/copy-var version gasbb-ns)}
+       'gasbb.sheets {'active (sci/copy-var sheets/active sheets-ns)
+                    'sheet (sci/copy-var sheets/sheet sheets-ns)
+                    'values (sci/copy-var sheets/values sheets-ns)
+                    'rows->maps (sci/copy-var sheets/rows->maps sheets-ns)
+                    'maps->rows (sci/copy-var sheets/maps->rows sheets-ns)
+                    'read-maps (sci/copy-var sheets/read-maps sheets-ns)
+                    'write-rows! (sci/copy-var sheets/write-rows! sheets-ns)
+                    'append-row! (sci/copy-var sheets/append-row! sheets-ns)}}})))
+
+(defn- with-output [f]
+  ;; Apps Script has no stdout: route Clojure printing to console.log, which
+  ;; shows up in the editor's execution log and in Cloud Logging.
+  (try
+    (sci/binding [sci/print-fn log-print
+                  sci/print-err-fn log-print
+                  sio/print-newline true]
+      (f))
+    (finally (flush-log))))
+
+(defn eval-string
+  "Evaluates Clojure source `s` and returns the value of the last form."
+  [s]
+  (with-output #(sci/eval-string* @ctx s)))
+
+;; ---------------------------------------------------------------------------
+;; Loading files once per execution
+
+(def ^:private loaded (atom #{}))
+
+(defn load-project-file
+  "Evaluates the project file `file-name` unless it was already loaded during
+  this execution."
+  [file-name]
+  (when-not (contains? @loaded file-name)
+    (let [source (or (read-project-file file-name)
+                     (throw (js/Error. (str "gasbb: no project file named " file-name
+                                            " (add it as an HTML file called "
+                                            file-name ")"))))]
+      (with-output #(sci/binding [sci/file file-name]
+                      (sci/eval-string* @ctx source)))
+      (swap! loaded conj file-name)))
+  nil)
+
+(defn- resolve-fn [fn-name]
+  (let [sym (symbol fn-name)
+        sym (if (namespace sym) sym (symbol "user" (name sym)))
+        v (sci/resolve @ctx sym)]
+    (when-not v
+      (throw (js/Error. (str "gasbb: could not resolve " sym))))
+    @v))
+
+(defn run
+  "Loads `file-name` (once per execution) and calls the function `fn-name`
+  defined in it with `args`. The result is converted to plain JS."
+  [file-name fn-name & args]
+  (load-project-file file-name)
+  (convert/->js (with-output #(apply (resolve-fn fn-name) args))))
+
+;; ---------------------------------------------------------------------------
+;; =CLJ(...) custom spreadsheet function
+
+(def ^:private cell-fns (atom {}))
+
+(defn- cell-fn [code]
+  (or (get @cell-fns code)
+      (let [f (eval-string
+               (str "(fn [& args] (let [[%1 %2 %3 %4 %5 %6 %7 %8 %9] args\n"
+                    "                   % %1]\n"
+                    code
+                    "\n))"))]
+        (swap! cell-fns assoc code f)
+        f)))
+
+(defn cell
+  "Backs the `=CLJ(code, arg1, ...)` spreadsheet function. Inside `code`,
+  `%` / `%1` ... `%9` are the arguments; ranges arrive as vectors of rows.
+  The result is converted to something a cell can display: scalars stay,
+  sequences of sequences become 2D ranges, maps become two-column ranges."
+  [code args]
+  (try
+    (convert/->cell (with-output #(apply (cell-fn code) (map convert/->clj args))))
+    (catch :default e
+      (throw (js/Error. (str "CLJ: " (ex-message e)))))))
+
+;; ---------------------------------------------------------------------------
+;; JS API
+
+(defn- error-data [e]
+  {:message (ex-message e)
+   :data (some-> (ex-data e) (dissoc :sci.impl/callstack) pr-str)
+   :stacktrace (when-let [st (try (sci/stacktrace e) (catch :default _ nil))]
+                 (str/join "\n" (sci/format-stacktrace st)))})
+
+(defn repl-eval
+  "Evaluates `code` after replaying `history` (earlier successful forms of a
+  REPL session; each Apps Script call is a fresh runtime). Returns a JS
+  object {value, out, error} with `value` printed as EDN."
+  [history code]
+  (let [out (atom [])]
+    (sci/binding [sci/print-fn #(swap! out conj %)
+                  sci/print-err-fn #(swap! out conj %)
+                  sio/print-newline true]
+      (try
+        (doseq [h history]
+          (sci/binding [sci/print-fn identity] (sci/eval-string* @ctx h)))
+        (let [v (sci/eval-string* @ctx code)]
+          #js {:value (binding [*print-length* 100] (pr-str v))
+               :out (str/join @out)})
+        (catch :default e
+          #js {:error (clj->js (error-data e))
+               :out (str/join @out)})))))
+
+(defn ^:export init []
+  (set! (.-gasbb js/globalThis)
+        #js {:version version
+             :evalString (fn [s] (convert/->js (eval-string s)))
+             :loadFile load-project-file
+             :run run
+             :cell (fn [code args] (cell code (vec args)))
+             :replEval (fn [history code] (repl-eval (vec history) code))
+             :setFileReader (fn [f] (reset! file-reader f) nil)}))

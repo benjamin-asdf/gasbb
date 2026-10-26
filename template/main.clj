@@ -1,0 +1,18 @@
+(ns main
+  (:require [clojure.string :as str]
+            [gasbb.sheets :as sheets]))
+
+(defn on-open [_e]
+  (-> (.getUi js/SpreadsheetApp)
+      (.createMenu "Clojure")
+      (.addItem "Open REPL" "gasbbOpenRepl")
+      (.addItem "Hello" "hello")
+      (.addToUi)))
+
+(defn hello []
+  (let [rows (sheets/values)
+        msg (str "This sheet has " (count rows) " rows. "
+                 "Header: " (str/join ", " (first rows)))]
+    (println msg)
+    (.alert (.getUi js/SpreadsheetApp) msg)
+    msg))

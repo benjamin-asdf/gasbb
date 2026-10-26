@@ -1,0 +1,7 @@
+node_modules/
+.shadow-cljs/
+dist/cljs-runtime/
+dist/manifest.edn
+.clasp.json
+.cpcache/
+.gasbb-dev.json

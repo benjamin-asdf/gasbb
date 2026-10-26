@@ -1,0 +1,11 @@
+{
+  "name": "gasbb",
+  "private": true,
+  "scripts": {
+    "build": "shadow-cljs release gasbb",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.5.8"
+  }
+}

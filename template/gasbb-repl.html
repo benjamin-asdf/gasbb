@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --fg: #1f1f1f; --muted: #6b6b6b; --line: #dadce0; --accent: #1a73e8; --err: #c5221f; --bg-in: #f8f9fa; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; color: var(--fg); display: flex; flex-direction: column; height: 100vh; }
+  #log { flex: 1; overflow-y: auto; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+  .entry { border-bottom: 1px solid var(--line); padding: 6px 0; white-space: pre-wrap; word-break: break-word; }
+  .in { color: var(--muted); }
+  .in::before { content: "user=> "; }
+  .out { color: var(--muted); font-style: italic; }
+  .val { color: var(--fg); }
+  .err { color: var(--err); }
+  .ms { color: var(--muted); font-size: 11px; float: right; }
+  form { border-top: 1px solid var(--line); padding: 8px 10px; background: var(--bg-in); }
+  textarea { box-sizing: border-box; width: 100%; height: 90px; resize: vertical; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 6px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .bar span { color: var(--muted); font-size: 11px; flex: 1; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<div id="log"></div>
+<form id="form">
+  <textarea id="code" spellcheck="false" placeholder="(->> (gasbb.sheets/read-maps) (take 3))"></textarea>
+  <div class="bar">
+    <span id="hint">Ctrl+Enter to eval · defs: 0</span>
+    <button type="button" id="reset" title="Forget definitions">Reset</button>
+    <button type="submit" class="primary" id="eval">Eval</button>
+  </div>
+</form>
+<script>
+  // Every server call is a fresh Apps Script execution, so the REPL keeps
+  // earlier definitions (ns, require, def...) here and replays them first.
+  var history = [];
+  var DEF = /^\s*\((ns|require|def[\w-]*|import)[\s)]/;
+  var log = document.getElementById("log");
+  var code = document.getElementById("code");
+  var btn = document.getElementById("eval");
+  var hint = document.getElementById("hint");
+
+  function add(cls, text) {
+    var d = document.createElement("div");
+    d.className = cls;
+    d.textContent = text;
+    return d;
+  }
+
+  function evaluate() {
+    var src = code.value;
+    if (!src.trim()) return;
+    var entry = document.createElement("div");
+    entry.className = "entry";
+    entry.appendChild(add("in", src));
+    log.appendChild(entry);
+    btn.disabled = true;
+    var t0 = Date.now();
+    google.script.run
+      .withSuccessHandler(function (r) {
+        btn.disabled = false;
+        var ms = add("ms", (Date.now() - t0) + " ms");
+        entry.insertBefore(ms, entry.firstChild);
+        if (r.out) entry.appendChild(add("out", r.out.replace(/\n$/, "")));
+        if (r.error) {
+          entry.appendChild(add("err", r.error.message +
+            (r.error.data ? "\n" + r.error.data : "") +
+            (r.error.stacktrace ? "\n" + r.error.stacktrace : "")));
+        } else {
+          entry.appendChild(add("val", r.value));
+          if (DEF.test(src)) history.push(src);
+          code.value = "";
+        }
+        hint.textContent = "Ctrl+Enter to eval · defs: " + history.length;
+        log.scrollTop = log.scrollHeight;
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        entry.appendChild(add("err", String(e && e.message || e)));
+      })
+      .gasbbReplEval(history, src);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  document.getElementById("form").addEventListener("submit", function (e) { e.preventDefault(); evaluate(); });
+  code.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); evaluate(); }
+  });
+  document.getElementById("reset").addEventListener("click", function () {
+    history = [];
+    hint.textContent = "Ctrl+Enter to eval · defs: 0";
+  });
+  code.focus();
+</script>
+</body>
+</html>

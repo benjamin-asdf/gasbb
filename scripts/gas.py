@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Create / push / test a gasbb Apps Script project bound to a spreadsheet,
+using the Apps Script, Drive and Sheets REST APIs as the gcloud
+application-default login.
+
+  scripts/gas.py create "gasbb demo"   new spreadsheet + bound script, state in .gasbb-dev.json
+  scripts/gas.py push [--test]         upload dist/gasbb.js + template/ (+ test/apps-script/)
+  scripts/gas.py test                  run gasbbSelfTest() in Apps Script and print the report
+
+File mapping: *.js/*.gs -> SERVER_JS, *.html -> HTML, *.clj -> HTML named
+"x.clj" (gasbb reads it through HtmlService), appsscript.json -> manifest.
+"""
+import json, pathlib, subprocess, sys, urllib.error, urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+STATE = ROOT / ".gasbb-dev.json"
+
+
+def token():
+    return subprocess.check_output(
+        ["gcloud", "auth", "application-default", "print-access-token"], text=True).strip()
+
+
+def call(url, body=None, method=None):
+    req = urllib.request.Request(
+        url, json.dumps(body).encode() if body is not None else None,
+        method=method or ("POST" if body is not None else "GET"),
+        headers={"Authorization": "Bearer " + token(), "Content-Type": "application/json"})
+    try:
+        return json.load(urllib.request.urlopen(req))
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"{e.code} {url}\n{e.read().decode()}")
+
+
+def files(with_test):
+    dirs = [ROOT / "template"] + ([ROOT / "test" / "apps-script"] if with_test else [])
+    out = [{"name": "gasbb", "type": "SERVER_JS",
+            "source": (ROOT / "dist" / "gasbb.js").read_text()}]
+    for d in dirs:
+        for p in sorted(x for x in d.rglob("*") if x.is_file()):
+            rel = p.relative_to(d).as_posix()
+            stem = rel[: -len(p.suffix)]
+            if rel == "appsscript.json":
+                out.append({"name": "appsscript", "type": "JSON", "source": p.read_text()})
+            elif p.suffix in (".js", ".gs"):
+                out.append({"name": stem, "type": "SERVER_JS", "source": p.read_text()})
+            elif p.suffix == ".html":
+                out.append({"name": stem, "type": "HTML", "source": p.read_text()})
+            elif p.suffix in (".clj", ".cljc", ".cljs"):
+                # Kept with its extension: main.clj, util/text.clj
+                out.append({"name": rel, "type": "HTML", "source": p.read_text()})
+    return out
+
+
+def main(argv):
+    cmd = argv[0] if argv else ""
+    if cmd == "create":
+        title = argv[1] if len(argv) > 1 else "gasbb demo"
+        sheet = call("https://sheets.googleapis.com/v4/spreadsheets",
+                     {"properties": {"title": title}})
+        proj = call("https://script.googleapis.com/v1/projects",
+                    {"title": title, "parentId": sheet["spreadsheetId"]})
+        state = {"spreadsheetId": sheet["spreadsheetId"], "scriptId": proj["scriptId"],
+                 "sheetUrl": sheet["spreadsheetUrl"],
+                 "scriptUrl": f"https://script.google.com/d/{proj['scriptId']}/edit"}
+        STATE.write_text(json.dumps(state, indent=2))
+        print(json.dumps(state, indent=2))
+    elif cmd == "push":
+        state = json.loads(STATE.read_text())
+        fs = files("--test" in argv)
+        call(f"https://script.googleapis.com/v1/projects/{state['scriptId']}/content",
+             {"files": fs}, method="PUT")
+        for f in fs:
+            print(f"{f['type']:9} {f['name']:20} {len(f['source']):>8} chars")
+    elif cmd == "test":
+        state = json.loads(STATE.read_text())
+        r = call(f"https://script.googleapis.com/v1/scripts/{state['scriptId']}:run",
+                 {"function": "gasbbSelfTest", "devMode": True})
+        if "error" in r:
+            print(json.dumps(r["error"], indent=2))
+            sys.exit(1)
+        report = r["response"]["result"]
+        print("gasbb", report["version"])
+        bad = 0
+        for t in report["results"]:
+            bad += not t["ok"]
+            print(f"{'ok  ' if t['ok'] else 'FAIL'} {t['ms']:>5} ms  {t['name']}"
+                  + (f"\n      {t['error']}" if not t["ok"] else f"  -> {t['value']}"))
+        sys.exit(1 if bad else 0)
+    else:
+        print(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
