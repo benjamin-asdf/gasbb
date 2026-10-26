@@ -54,7 +54,7 @@
 
   function evaluate() {
     var src = code.value;
-    if (!src.trim()) return;
+    if (!src.trim() || btn.disabled) return;  // one eval at a time
     if (lastFailed && lastFailed.start + lastFailed.forms.length === defs.length &&
         lastFailed.forms.every(function (f) { return src.indexOf(f) >= 0; })) {
       defs.splice(lastFailed.start, lastFailed.forms.length);

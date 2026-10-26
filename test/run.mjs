@@ -204,6 +204,19 @@ test("stack traces keep the input's line numbers", () => {
   assert.equal(gasbb.replEval(Array.from(r.keep), "[(str *ns*) (some? (resolve 'a/y))]").value, '["a" true]');
 });
 
+test("SCI functions work when called later, outside an eval", () => {
+  const { gasbb } = newRuntime();
+  assert.equal(gasbb.cell("(eval '(+ 1 2))", []), 3);
+  assert.equal(gasbb.cell("(do (defrecord R [a]) (:a (->R 5)))", []), 5);
+  assert.equal(gasbb.replEval([], "(set! *data-readers* {'x identity}) :ok").value, ":ok");
+});
+
+test("huge values are printed with a limit", () => {
+  const { gasbb } = newRuntime();
+  assert.ok(gasbb.replEval([], "(repeat (repeat (repeat (repeat (range)))))").value.length <= 100000);
+  assert.equal(gasbb.cell('(apply str (repeat 60000 "a"))', []).length, 50000);
+});
+
 test("reader conditionals take the :cljs branch", () => {
   const { gasbb } = newRuntime();
   assert.equal(gasbb.evalString("#?(:cljs 1 :clj 2)"), 1);

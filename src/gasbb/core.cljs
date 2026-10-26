@@ -10,7 +10,9 @@
             [gasbb.convert :as convert]
             [gasbb.sheets :as sheets]
             [sci.core :as sci]
+            [sci.ctx-store]
             [sci.impl.io :as sio]
+            [sci.impl.parser]
             [sci.lang]))
 
 (def version "0.1.0")
@@ -73,7 +75,7 @@
 
 (def ^:private ctx
   (delay
-    (sci/init
+    (doto (sci/init
      {:classes {'js js/globalThis :allow :all}
       ;; like nbb and scittle: #?(:cljs ...) branches apply, also in .cljc files
       :features #{:cljs}
@@ -89,7 +91,10 @@
                     'maps->rows (sci/copy-var sheets/maps->rows sheets-ns)
                     'read-maps (sci/copy-var sheets/read-maps sheets-ns)
                     'write-rows! (sci/copy-var sheets/write-rows! sheets-ns)
-                    'append-row! (sci/copy-var sheets/append-row! sheets-ns)}}})))
+                    'append-row! (sci/copy-var sheets/append-row! sheets-ns)}}})
+      ;; functions defined in SCI (called later from =CLJ or gasbb.run, outside
+      ;; any eval) find the context here, e.g. for eval, resolve, defrecord
+      (sci.ctx-store/reset-ctx!))))
 
 (defn- with-output [f]
   ;; Apps Script has no stdout: route Clojure printing to console.log, which
@@ -226,7 +231,10 @@
           ;; evaluating the parsed form (not its text again) keeps the
           ;; reader's positions, so stack traces show lines of `code`
           (let [src (strip-leading-comments src)
-                [v the-ns] (sci/binding [sci/ns (or the-ns @sci/ns)]
+                [v the-ns] (sci/binding [sci/ns (or the-ns @sci/ns)
+                                         ;; like sci/eval-string*, so that
+                                         ;; (set! *data-readers* ..) works
+                                         sci.impl.parser/data-readers @sci.impl.parser/data-readers]
                              (let [v (sci/eval-form @ctx form)]
                                [v @sci/ns]))]
             (reset! cur-ns the-ns)
@@ -261,7 +269,7 @@
                              nil history)
               _ (reset! cur-ns the-ns)
               {v :val the-ns :ns} (eval-forms the-ns code kept cur-ns)]
-          #js {:value (binding [*print-length* 100] (pr-str v))
+          #js {:value (convert/pr-str-limited v 100000)
                :out (str/join @out)
                :ns (str the-ns)
                :keep (into-array @kept)})

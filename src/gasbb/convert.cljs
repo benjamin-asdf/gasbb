@@ -42,9 +42,9 @@
       (throw (ex-info "limit reached" {::limit true}))))
   (-flush [_] nil))
 
-(defn- pr-str-limited
-  "pr-str that stops after `limit` characters, so printing an infinite or
-  huge structure ends (a cell holds at most 50000 characters)."
+(defn pr-str-limited
+  "pr-str with *print-length* 100 that stops after `limit` characters, so
+  printing an infinite or huge structure ends."
   [x limit]
   (let [parts #js []
         opts {:readably true :print-length 100}]
@@ -59,7 +59,9 @@
 (defn- cell-scalar [x]
   (cond
     (nil? x) ""
-    (or (string? x) (number? x) (boolean? x) (inst? x)) x
+    ;; a cell holds at most 50000 characters
+    (string? x) (if (> (count x) 50000) (str (subs x 0 49997) "...") x)
+    (or (number? x) (boolean? x) (inst? x)) x
     (keyword? x) (->js x)
     (symbol? x) (str x)
     :else (pr-str-limited x 50000)))
