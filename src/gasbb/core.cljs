@@ -10,7 +10,8 @@
             [gasbb.convert :as convert]
             [gasbb.sheets :as sheets]
             [sci.core :as sci]
-            [sci.impl.io :as sio]))
+            [sci.impl.io :as sio]
+            [sci.lang]))
 
 (def version "0.1.0")
 
@@ -61,6 +62,11 @@
   (when-not (= "" @line-buf)
     (.log js/console @line-buf)
     (reset! line-buf "")))
+
+(extend-protocol IPrintWithWriter
+  sci.lang/Namespace
+  (-pr-writer [the-ns writer _]
+    (-write writer (str "#namespace[" the-ns "]"))))
 
 (def ^:private gasbb-ns (sci/create-ns 'gasbb.core nil))
 (def ^:private sheets-ns (sci/create-ns 'gasbb.sheets nil))
@@ -133,6 +139,28 @@
   (convert/->js (with-output #(apply (resolve-fn fn-name) args))))
 
 ;; ---------------------------------------------------------------------------
+;; Errors
+
+(defn- error-message
+  "The message of `e`, or the thrown value itself for `(throw \"boom\")`."
+  [e]
+  (or (ex-message e)
+      ;; SCI wraps a thrown non-Error value; the value itself is the cause
+      (when-let [c (ex-cause e)] (or (ex-message c) (str c)))
+      (str e)))
+
+(defn- error-data [e]
+  {:message (error-message e)
+   ;; SCI wraps user exceptions in its own :sci/error, which carries only
+   ;; position info (the stacktrace shows that); the user's data is in the cause
+   :data (let [d (ex-data e)
+               d (if (= :sci/error (:type d)) (some-> e ex-cause ex-data) d)]
+           (when-not (= :sci/error (:type d))
+             (some-> d (dissoc :sci.impl/callstack) pr-str)))
+   :stacktrace (when-let [st (try (sci/stacktrace e) (catch :default _ nil))]
+                 (str/join "\n" (sci/format-stacktrace st)))})
+
+;; ---------------------------------------------------------------------------
 ;; =CLJ(...) custom spreadsheet function
 
 (def ^:private cell-fns (atom {}))
@@ -156,35 +184,61 @@
   (try
     (convert/->cell (with-output #(apply (cell-fn code) (map convert/->clj args))))
     (catch :default e
-      (throw (js/Error. (str "CLJ: " (ex-message e)))))))
+      (throw (js/Error. (str "CLJ: " (error-message e)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JS API
 
-(defn- error-data [e]
-  {:message (ex-message e)
-   ;; SCI's own errors carry only position info, which the stacktrace shows
-   :data (let [d (ex-data e)]
-           (when-not (= :sci/error (:type d))
-             (some-> d (dissoc :sci.impl/callstack) pr-str)))
-   :stacktrace (when-let [st (try (sci/stacktrace e) (catch :default _ nil))]
-                 (str/join "\n" (sci/format-stacktrace st)))})
+(defn- def-form? [form]
+  (and (seq? form)
+       (symbol? (first form))
+       (let [n (name (first form))]
+         (or (contains? #{"ns" "in-ns" "require" "import"} n)
+             (str/starts-with? n "def")))))
+
+(defn- def-sources
+  "Source strings of the top-level ns/require/def... forms in `code`: what a
+  REPL session has to replay to get back to its state. Other top-level forms
+  are left out, so their side effects don't run again."
+  [code]
+  (try
+    (let [rdr (sci/source-reader code)]
+      (loop [acc []]
+        (let [[form src] (sci/parse-next+string @ctx rdr)]
+          (if (= ::sci/eof form)
+            acc
+            (recur (cond-> acc
+                     ;; the buffer also holds comments in front of the form
+                     (def-form? form) (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" "")))))))))
+    (catch :default _ [])))
+
+(defn- eval-in
+  "Evaluates `s` starting in namespace `the-ns`; returns {:val :ns}."
+  [the-ns s]
+  (sci/eval-string+ @ctx s (when the-ns {:ns the-ns})))
 
 (defn repl-eval
-  "Evaluates `code` after replaying `history` (earlier successful forms of a
-  REPL session; each Apps Script call is a fresh runtime). Returns a JS
-  object {value, out, error} with `value` printed as EDN."
+  "Evaluates `code` after replaying `history` (the def-like forms of earlier
+  evals; each Apps Script call is a fresh runtime). The current namespace
+  carries over from form to form, so `(ns foo (:require ...))` keeps working.
+  Returns a JS object {value, out, error, ns, keep}: `value` printed as EDN,
+  `keep` the def-like forms of `code` to add to the history."
   [history code]
   (let [out (atom [])]
     (sci/binding [sci/print-fn #(swap! out conj %)
                   sci/print-err-fn #(swap! out conj %)
                   sio/print-newline true]
       (try
-        (doseq [h history]
-          (sci/binding [sci/print-fn identity] (sci/eval-string* @ctx h)))
-        (let [v (sci/eval-string* @ctx code)]
+        (let [the-ns (reduce (fn [the-ns h]
+                               (:ns (sci/binding [sci/print-fn identity
+                                                  sci/print-err-fn identity]
+                                      (eval-in the-ns h))))
+                             nil history)
+              {v :val the-ns :ns} (eval-in the-ns code)]
           #js {:value (binding [*print-length* 100] (pr-str v))
-               :out (str/join @out)})
+               :out (str/join @out)
+               :ns (str the-ns)
+               :keep (into-array (def-sources code))})
         (catch :default e
           #js {:error (clj->js (error-data e))
                :out (str/join @out)})))))

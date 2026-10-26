@@ -127,6 +127,9 @@ test("=CLJ cell function", () => {
   assert.equal(gasbb.cell("[]", []), "");
   assert.throws(() => gasbb.cell("(throw (ex-info \"boom\" {}))", []), /CLJ: boom/);
   assert.throws(() => gasbb.cell("(nope 1)", []), /CLJ: .*nope/);
+  assert.throws(() => gasbb.cell('(throw "boom")', []), /CLJ: boom/);
+  assert.deepEqual(plain(gasbb.cell("[{:a 1 :b 2} {:b 3 :a 4} {:a 5}]", [])),
+                   [["a", "b"], [1, 2], [4, 3], [5, ""]]);
 });
 
 test("dates pass through", () => {
@@ -144,6 +147,32 @@ test("replEval replays history and reports errors", () => {
   assert.equal(r2.out, "hi\n");
   const r3 = gasbb.replEval([], "(inc y)");
   assert.match(r3.error.message, /Unable to resolve symbol: y/);
+});
+
+test("replEval carries the namespace across replayed forms", () => {
+  const { gasbb } = newRuntime();
+  const r1 = gasbb.replEval([], "(ns foo (:require [clojure.string :as s]))");
+  assert.equal(r1.ns, "foo");
+  const r2 = gasbb.replEval(Array.from(r1.keep), '(def a 1) (s/upper-case "x")');
+  assert.equal(r2.value, '"X"');
+  assert.equal(r2.ns, "foo");
+  const r3 = gasbb.replEval([...r1.keep, ...r2.keep], "[*ns* a]");
+  assert.equal(r3.value, "[#namespace[foo] 1]");
+});
+
+test("replEval keeps only def-like top-level forms", () => {
+  const { gasbb } = newRuntime();
+  const r = gasbb.replEval([], ';; helper\n(def a 1) (println :side-effect) (defn f [] a) (+ 1 2)');
+  assert.deepEqual(Array.from(r.keep), ["(def a 1)", "(defn f [] a)"]);
+  assert.equal(r.value, "3");
+});
+
+test("replEval shows ex-info data and non-Error throws", () => {
+  const { gasbb } = newRuntime();
+  const r = gasbb.replEval([], '(throw (ex-info "m" {:x 1}))');
+  assert.equal(r.error.message, "m");
+  assert.equal(r.error.data, "{:x 1}");
+  assert.equal(gasbb.replEval([], '(throw "boom")').error.message, "boom");
 });
 
 test("setFileReader replaces HtmlService (library use)", () => {

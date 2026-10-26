@@ -6,8 +6,9 @@ Clojure for [Google Apps Script](https://developers.google.com/apps-script), int
 [SCI](https://github.com/babashka/sci). In the spirit of
 [nbb](https://github.com/babashka/nbb) and [scittle](https://github.com/babashka/scittle):
 no build step for your code. You write `.clj` files in the Apps Script project, and gasbb
-evaluates them inside Apps Script's V8 runtime, with full interop to `SpreadsheetApp`,
-`DriveApp`, `GmailApp` and the rest.
+evaluates them inside Apps Script's V8 runtime, with interop to `SpreadsheetApp`,
+`DriveApp`, `GmailApp` and the rest (each service's OAuth scope goes in the manifest, see
+[Scopes](doc/setup.md#scopes)).
 
 ```clojure
 (ns main
@@ -26,16 +27,18 @@ And Clojure straight in a cell:
 =CLJ("(->> % (map first) frequencies)", B2:B100)
 ```
 
-Ranges arrive as vectors of rows. Sequences spill into a range, and maps spill as
-key/value rows. Try it: the [demo spreadsheet](https://docs.google.com/spreadsheets/d/1CXI2q7DkxalQYklY1nv3d8c9VCCzEUOvAMuobF729s4/edit)
+Ranges arrive as vectors of rows. Sequences spill into a range, maps spill as key/value
+rows, and a sequence of maps spills as a table with a header row. Try it: the [demo spreadsheet](https://docs.google.com/spreadsheets/d/1CXI2q7DkxalQYklY1nv3d8c9VCCzEUOvAMuobF729s4/edit)
 is public, and *File → Make a copy* gives you your own, with the script included.
 
 ![=CLJ formulas in the demo spreadsheet](doc/sheet.png)
 
 <img src="doc/repl.png" width="320" align="right" alt="REPL sidebar">
 
-The REPL sidebar: `ns`/`require`/`def` forms are kept in the sidebar and replayed for each
-eval, since every call is a fresh Apps Script execution.
+The REPL sidebar. Every eval is a fresh Apps Script execution, so the sidebar keeps the
+top-level `ns`/`require`/`def…` forms and replays them before each eval. (Screenshot
+rendered locally with the same bundle and a stubbed `google.script.run`, so the times shown
+are browser times. In a sheet, each eval is a full server round trip.)
 <br clear="right">
 
 ## What you get
@@ -105,7 +108,7 @@ function CLJ(code, ...args) { return gasbb.cell(code, args); }
 | `gasbb.cell(code, args)` | backs `=CLJ`; converts ranges in and spills results out |
 | `gasbb.evalString(code)` | evaluate a string, result as plain JS |
 | `gasbb.loadFile(file)` | load a project file |
-| `gasbb.replEval(history, code)` | REPL support, returns `{value, out, error}` |
+| `gasbb.replEval(history, code)` | REPL support, returns `{value, out, error, ns, keep}`; `keep` = the def-like forms of `code` to add to `history` |
 | `gasbb.setFileReader(fn)` | replace how project files are read (see *As a library*) |
 
 ## Clojure API
@@ -122,16 +125,22 @@ function CLJ(code, ...args) { return gasbb.cell(code, args); }
 Every Apps Script execution (a trigger, a menu click, a cell recalculation, a REPL eval)
 starts a fresh V8 isolate that evaluates all script files. gasbb does nothing until it is
 first used, then creates the SCI context and loads the `.clj` files you ask for. These
-numbers come from the self test running in Apps Script (`scripts/gas.py test`):
+numbers come from the self test running in Apps Script (`scripts/gas.py test`). They don't
+include starting the execution, parsing the ~950 KB bundle, or the round trip from the
+browser:
 
 | | |
 |---|---|
 | first eval incl. SCI context init | ~8 ms |
-| load `main.clj` + one required ns | ~20 ms |
+| load a `.clj` file + one required ns | ~20 ms |
 | `=CLJ("(* %1 %2)", …)` | ~9 ms |
 
-The REPL sidebar keeps your `ns`/`require`/`def…` forms in the browser and replays them
-before each eval, because the server side forgets everything between calls.
+The REPL sidebar keeps the top-level `ns`/`require`/`def…` forms of each eval in the
+browser and replays them, in order and with the namespace carried over, before each new
+eval, because the server forgets everything between calls. A `def` whose value has a side
+effect runs that side effect again on every eval: `(def r (sheets/append-row! "Log" [1]))`
+appends a row each time. Keep side effects in plain forms, not in `def`s. *Reset* forgets
+the kept forms.
 
 ## Limitations
 

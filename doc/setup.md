@@ -30,9 +30,8 @@ Three ways in, from fastest to most flexible.
 5. **+ → HTML**, name it `main.clj`, and paste [`template/main.clj`](../template/main.clj).
    The editor shows it as `main.clj.html`. That is fine: gasbb reads it under the name
    `main.clj`.
-6. Optional: **Project Settings → Show "appsscript.json" manifest file in editor**, then
-   copy [`template/appsscript.json`](../template/appsscript.json). Without it, Apps Script
-   works out the needed scopes by itself.
+6. **Project Settings → Show "appsscript.json" manifest file in editor**, then copy
+   [`template/appsscript.json`](../template/appsscript.json). See [Scopes](#scopes).
 7. Reload the spreadsheet.
 
 More namespaces: an HTML file named `util/text.clj` is found by
@@ -64,6 +63,27 @@ To keep editing with Clojure tooling (syntax highlighting, paredit, clj-kondo), 
 editor that `*.clj.html` is Clojure. In Emacs: `(add-to-list 'auto-mode-alist
 '("\\.clj\\.html\\'" . clojure-mode))`.
 
+## Scopes
+
+Apps Script normally works out which OAuth scopes a project needs by scanning its script
+files for calls like `GmailApp.sendEmail`
+([docs](https://developers.google.com/apps-script/concepts/scopes)). It can't see into your
+`.clj` files, so a service you only use from Clojure is not detected. List every scope
+explicitly in `appsscript.json` → `oauthScopes`. The template has the two that the demo
+needs:
+
+```json
+"oauthScopes": [
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/script.container.ui"
+]
+```
+
+Add what your code uses, e.g. `https://www.googleapis.com/auth/script.send_mail` for
+`(.sendEmail js/MailApp …)`, `https://www.googleapis.com/auth/drive` for `js/DriveApp`,
+`https://www.googleapis.com/auth/script.external_request` for `js/UrlFetchApp`. On the next
+run, Google asks you to authorize the new scopes.
+
 ## Standalone scripts, web apps, triggers
 
 gasbb doesn't need a spreadsheet. In a standalone Apps Script project, use the same files
@@ -86,6 +106,7 @@ forwards to Clojure.
 | `=CLJ` shows `#ERROR!` | Hover the cell for the message, e.g. `CLJ: Unable to resolve symbol: x`. |
 | `=CLJ` stays at `Loading...` | The first call after an edit loads the ~950 KB bundle. Wait a second. |
 | Menu does not appear | `onOpen` only runs on reload, and only after the script was saved. Check *Executions* in the Apps Script editor. |
+| `You do not have permission to call …` | The service's scope is missing from `oauthScopes`, see [Scopes](#scopes). |
 | `println` output | **Executions** in the Apps Script editor (or Cloud Logging). |
 
 ---

@@ -36,9 +36,9 @@
 </form>
 <script>
   // Every server call is a fresh Apps Script execution, so the REPL keeps
-  // earlier definitions (ns, require, def...) here and replays them first.
+  // the top-level ns/require/def... forms of earlier evals here (the server
+  // picks them out, r.keep) and replays them first.
   var defs = [];
-  var DEF = /^\s*\((ns|require|def[\w-]*|import)[\s)]/;
   var log = document.getElementById("log");
   var code = document.getElementById("code");
   var btn = document.getElementById("eval");
@@ -70,7 +70,7 @@
             (r.error.stacktrace ? "\n" + r.error.stacktrace : "")));
         } else {
           entry.appendChild(add("val", r.value));
-          if (DEF.test(src)) defs.push(src);
+          defs = defs.concat(r.keep || []);
           code.value = "";
         }
         entry.appendChild(add("ms", (Date.now() - t0) + " ms"));

@@ -53,17 +53,24 @@
 (defn ->cell
   "Clojure -> a value a custom spreadsheet function may return: a scalar or a
   rectangular 2D array. A flat sequence spills down one column, a sequence
-  of sequences fills a range, a map spills as key/value rows."
+  of sequences fills a range, a map spills as key/value rows and a sequence
+  of maps as a table with a header row."
   [x]
   (cond
     (map? x) (->cell (map (fn [[k v]] [k v]) x))
     (or (sequential? x) (set? x))
     (let [xs (seq x)]
-      (if (nil? xs)
-        ""
-        (->js (pad (if (some #(or (sequential? %) (set? %) (map? %)) xs)
-                     (map (fn [r] (if (map? r) (row (vals r)) (row r))) xs)
-                     (map vector (map cell-scalar xs)))))))
+      (cond
+        (nil? xs) ""
+        ;; a table: header row of keys, then one aligned row per map
+        (every? map? xs)
+        (let [ks (distinct (mapcat keys xs))]
+          (->js (into [(mapv cell-scalar ks)]
+                      (map (fn [m] (mapv #(cell-scalar (get m %)) ks)))
+                      xs)))
+        (some #(or (sequential? %) (set? %) (map? %)) xs)
+        (->js (pad (map (fn [r] (if (map? r) (row (vals r)) (row r))) xs)))
+        :else (->js (mapv (comp vector cell-scalar) xs))))
     :else (cell-scalar x)))
 
 (defn header->key [h]
