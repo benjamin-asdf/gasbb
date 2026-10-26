@@ -39,6 +39,7 @@
   // picks them out, r.keep) and replays them first.
   var defs = [];
   var currentNs = "user";
+  var lastFailed = null;
   var log = document.getElementById("log");
   var code = document.getElementById("code");
   var btn = document.getElementById("eval");
@@ -54,6 +55,11 @@
   function evaluate() {
     var src = code.value;
     if (!src.trim()) return;
+    if (lastFailed && lastFailed.start + lastFailed.forms.length === defs.length &&
+        lastFailed.forms.every(function (f) { return src.indexOf(f) >= 0; })) {
+      defs.splice(lastFailed.start, lastFailed.forms.length);
+    }
+    lastFailed = null;
     var entry = document.createElement("div");
     entry.className = "entry";
     entry.appendChild(add("in", currentNs + "=> " + src));
@@ -64,8 +70,11 @@
       .withSuccessHandler(function (r) {
         btn.disabled = false;
         if (r.out) entry.appendChild(add("out", r.out.replace(/\n$/, "")));
-        // a fixed and re-run input brings the same forms again: keep one copy
-        (r.keep || []).forEach(function (k) { if (defs.indexOf(k) < 0) defs.push(k); });
+        var kept = r.keep || [];
+        // an input that failed halfway kept its first forms; remember them so
+        // a fixed re-run of that input doesn't keep them a second time
+        lastFailed = r.error && kept.length ? { start: defs.length, forms: kept } : null;
+        defs = defs.concat(kept);
         currentNs = r.ns || currentNs;
         if (r.error) {
           entry.appendChild(add("err", r.error.message +
@@ -94,6 +103,7 @@
   document.getElementById("reset").addEventListener("click", function () {
     defs = [];
     currentNs = "user";
+    lastFailed = null;
     hint.textContent = "Ctrl+Enter to eval · defs: 0";
   });
   code.focus();

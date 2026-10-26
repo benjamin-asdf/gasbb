@@ -33,13 +33,36 @@
     (or (sequential? x) (set? x)) (into-array (map ->js x))
     :else x))
 
+(deftype ^:private LimitedWriter [parts ^:mutable n limit]
+  IWriter
+  (-write [_ s]
+    (.push parts s)
+    (set! n (+ n (count s)))
+    (when (> n limit)
+      (throw (ex-info "limit reached" {::limit true}))))
+  (-flush [_] nil))
+
+(defn- pr-str-limited
+  "pr-str that stops after `limit` characters, so printing an infinite or
+  huge structure ends (a cell holds at most 50000 characters)."
+  [x limit]
+  (let [parts #js []
+        opts {:readably true :print-length 100}]
+    (try
+      (pr-writer x (->LimitedWriter parts 0 limit) opts)
+      (.join parts "")
+      (catch :default e
+        (if (::limit (ex-data e))
+          (str (subs (.join parts "") 0 (- limit 3)) "...")
+          (throw e))))))
+
 (defn- cell-scalar [x]
   (cond
     (nil? x) ""
     (or (string? x) (number? x) (boolean? x) (inst? x)) x
     (keyword? x) (->js x)
     (symbol? x) (str x)
-    :else (binding [*print-length* 100] (pr-str x))))
+    :else (pr-str-limited x 50000)))
 
 (defn- row [x]
   (if (or (sequential? x) (set? x))

@@ -223,16 +223,12 @@
                          (sci/parse-next+string @ctx rdr))]
         (if (= ::sci/eof form)
           {:val v :ns (or the-ns @sci/ns)}
-          ;; pad the form's source to where it stood in `code`, so line
-          ;; numbers in stack traces and var metadata stay right
-          (let [{:keys [line column]} (meta form)
-                src (strip-leading-comments src)
-                padded (if (and line column)
-                         (str (apply str (repeat (dec line) "\n"))
-                              (apply str (repeat (dec column) " "))
-                              src)
-                         src)
-                {v :val the-ns :ns} (eval-in the-ns padded)]
+          ;; evaluating the parsed form (not its text again) keeps the
+          ;; reader's positions, so stack traces show lines of `code`
+          (let [src (strip-leading-comments src)
+                [v the-ns] (sci/binding [sci/ns (or the-ns @sci/ns)]
+                             (let [v (sci/eval-form @ctx form)]
+                               [v @sci/ns]))]
             (reset! cur-ns the-ns)
             (when (def-form? form)
               (swap! kept conj src))

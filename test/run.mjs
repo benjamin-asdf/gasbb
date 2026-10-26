@@ -135,6 +135,7 @@ test("=CLJ cell function", () => {
   assert.throws(() => gasbb.cell("[(range)]", []), /CLJ: result has more than 50000 items/);
   assert.throws(() => gasbb.cell("(repeat 3 (range))", []), /CLJ: result has more than 50000 items/);
   assert.equal(plain(gasbb.cell("[{:a (range)}]", []))[1][0].slice(-4), "...)");
+  assert.ok(plain(gasbb.cell("[[(repeat (repeat (repeat (range))))]]", []))[0][0].length <= 50000);
 });
 
 test("dates pass through", () => {
@@ -197,6 +198,10 @@ test("replEval keeps the defs that ran before an error", () => {
 test("stack traces keep the input's line numbers", () => {
   const { gasbb } = newRuntime();
   assert.match(gasbb.replEval([], "(def a 1)\n\n\n  (inc nope)").error.stacktrace, /NO_SOURCE_PATH:4:3/);
+  assert.match(gasbb.replEval([], "(def a 1) #_(def zz\n 2)\n(def b (inc nope))").error.stacktrace, /NO_SOURCE_PATH:3:/);
+  assert.equal(gasbb.replEval([], "#_(a\nb\nc) (defn h [] 1) ((juxt :line :column) (meta #'h))").value, "[3 4]");
+  const r = gasbb.replEval([], "(ns a) (def x :a) (ns b) (ns a) (def y 1)");
+  assert.equal(gasbb.replEval(Array.from(r.keep), "[(str *ns*) (some? (resolve 'a/y))]").value, '["a" true]');
 });
 
 test("reader conditionals take the :cljs branch", () => {
