@@ -39,7 +39,7 @@
     (or (string? x) (number? x) (boolean? x) (inst? x)) x
     (keyword? x) (->js x)
     (symbol? x) (str x)
-    :else (pr-str x)))
+    :else (binding [*print-length* 100] (pr-str x))))
 
 (defn- row [x]
   (if (or (sequential? x) (set? x))
@@ -55,6 +55,16 @@
   infinite `(range)`; =CLJ fails with a message instead of hanging."
   50000)
 
+(defn- check-size!
+  "Throws when `xs` has more than `max-cell-items` items, without realizing
+  more of it than that."
+  [xs]
+  (when (> (bounded-count (inc max-cell-items) xs) max-cell-items)
+    (throw (ex-info (str "result has more than " max-cell-items
+                         " items (infinite sequence?), use take")
+                    {})))
+  xs)
+
 (defn ->cell
   "Clojure -> a value a custom spreadsheet function may return: a scalar or a
   rectangular 2D array. A flat sequence spills down one column, a sequence
@@ -65,10 +75,8 @@
     (map? x) (->cell (map (fn [[k v]] [k v]) x))
     (or (sequential? x) (set? x))
     (let [xs (seq x)]
-      (when (> (bounded-count (inc max-cell-items) xs) max-cell-items)
-        (throw (ex-info (str "result has more than " max-cell-items
-                             " items (infinite sequence?), use take")
-                        {})))
+      (check-size! xs)
+      (run! #(when (or (sequential? %) (set? %)) (check-size! %)) xs)
       (cond
         (nil? xs) ""
         ;; a table: header row of keys, then one aligned row per map

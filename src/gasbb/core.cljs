@@ -223,10 +223,19 @@
                          (sci/parse-next+string @ctx rdr))]
         (if (= ::sci/eof form)
           {:val v :ns (or the-ns @sci/ns)}
-          (let [{v :val the-ns :ns} (eval-in the-ns src)]
+          ;; pad the form's source to where it stood in `code`, so line
+          ;; numbers in stack traces and var metadata stay right
+          (let [{:keys [line column]} (meta form)
+                src (strip-leading-comments src)
+                padded (if (and line column)
+                         (str (apply str (repeat (dec line) "\n"))
+                              (apply str (repeat (dec column) " "))
+                              src)
+                         src)
+                {v :val the-ns :ns} (eval-in the-ns padded)]
             (reset! cur-ns the-ns)
             (when (def-form? form)
-              (swap! kept conj (strip-leading-comments src)))
+              (swap! kept conj src))
             (recur the-ns v)))))))
 
 (defn repl-eval

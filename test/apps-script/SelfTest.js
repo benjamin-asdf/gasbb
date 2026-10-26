@@ -6,6 +6,8 @@
 globalThis.gasbbFileEvaluations = (globalThis.gasbbFileEvaluations || 0) + 1;
 
 function gasbbSelfTest() {
+  // Set at the end of every run; still set next time means state carried over
+  const leftover = globalThis.gasbbPreviousRun;
   const results = [];
   function check(name, f) {
     const t0 = Date.now();
@@ -36,6 +38,9 @@ function gasbbSelfTest() {
   });
   check("cell table from maps", () => eq(gasbb.cell("[{:a 1 :b 2} {:b 3 :a 4}]", []), [["a", "b"], [1, 2], [4, 3]]));
   check("fresh runtime per execution", () => eq(globalThis.gasbbFileEvaluations, 1));
+  check("nothing left from earlier executions", () => eq([leftover, gasbb.evalString("(some? (resolve 'user/previous-run))")], [undefined, false]));
+  gasbb.evalString("(def previous-run true)");
+  globalThis.gasbbPreviousRun = true;
   check("no setTimeout in Apps Script", () => eq(typeof setTimeout, "undefined"));
   check("error message", () => eq(gasbb.replEval([], "(inc y)").error.message, "Unable to resolve symbol: y"));
   return { version: gasbb.version, results };

@@ -64,7 +64,8 @@
       .withSuccessHandler(function (r) {
         btn.disabled = false;
         if (r.out) entry.appendChild(add("out", r.out.replace(/\n$/, "")));
-        defs = defs.concat(r.keep || []);
+        // a fixed and re-run input brings the same forms again: keep one copy
+        (r.keep || []).forEach(function (k) { if (defs.indexOf(k) < 0) defs.push(k); });
         currentNs = r.ns || currentNs;
         if (r.error) {
           entry.appendChild(add("err", r.error.message +
