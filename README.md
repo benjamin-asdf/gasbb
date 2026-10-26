@@ -123,7 +123,8 @@ function CLJ(code, ...args) { return gasbb.cell(code, args); }
 ## How it runs
 
 Every Apps Script execution (a trigger, a menu click, a cell recalculation, a REPL eval)
-starts a fresh V8 isolate that evaluates all script files. gasbb does nothing until it is
+starts fresh: all script files are evaluated again, and nothing from earlier executions is
+left (the self test checks this). gasbb does nothing until it is
 first used, then creates the SCI context and loads the `.clj` files you ask for. These
 numbers come from the self test running in Apps Script (`scripts/gas.py test`). They don't
 include starting the execution, parsing the ~950 KB bundle, or the round trip from the
@@ -139,8 +140,9 @@ The REPL sidebar keeps the top-level `ns`/`require`/`def…` forms of each eval 
 browser and replays them, in order and with the namespace carried over, before each new
 eval, because the server forgets everything between calls. A `def` whose value has a side
 effect runs that side effect again on every eval: `(def r (sheets/append-row! "Log" [1]))`
-appends a row each time. Keep side effects in plain forms, not in `def`s. *Reset* forgets
-the kept forms.
+appends a row each time. Keep side effects in plain forms, not in `def`s. Only top-level
+forms are kept (`(do (def a 1))` is not), and the forms that ran before an error are kept.
+*Reset* forgets the kept forms.
 
 ## Limitations
 

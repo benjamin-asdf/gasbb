@@ -50,6 +50,11 @@
   (let [w (reduce max 1 (map count rows))]
     (mapv #(into % (repeat (- w (count %)) "")) rows)))
 
+(def max-cell-items
+  "More than this many items in a result is almost surely a mistake, e.g. an
+  infinite `(range)`; =CLJ fails with a message instead of hanging."
+  50000)
+
 (defn ->cell
   "Clojure -> a value a custom spreadsheet function may return: a scalar or a
   rectangular 2D array. A flat sequence spills down one column, a sequence
@@ -60,6 +65,10 @@
     (map? x) (->cell (map (fn [[k v]] [k v]) x))
     (or (sequential? x) (set? x))
     (let [xs (seq x)]
+      (when (> (bounded-count (inc max-cell-items) xs) max-cell-items)
+        (throw (ex-info (str "result has more than " max-cell-items
+                             " items (infinite sequence?), use take")
+                        {})))
       (cond
         (nil? xs) ""
         ;; a table: header row of keys, then one aligned row per map

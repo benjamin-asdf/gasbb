@@ -64,14 +64,14 @@
       .withSuccessHandler(function (r) {
         btn.disabled = false;
         if (r.out) entry.appendChild(add("out", r.out.replace(/\n$/, "")));
+        defs = defs.concat(r.keep || []);
+        currentNs = r.ns || currentNs;
         if (r.error) {
           entry.appendChild(add("err", r.error.message +
             (r.error.data ? "\n" + r.error.data : "") +
             (r.error.stacktrace ? "\n" + r.error.stacktrace : "")));
         } else {
           entry.appendChild(add("val", r.value));
-          defs = defs.concat(r.keep || []);
-          currentNs = r.ns || currentNs;
           code.value = "";
         }
         entry.appendChild(add("ms", (Date.now() - t0) + " ms"));

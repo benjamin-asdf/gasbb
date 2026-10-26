@@ -131,6 +131,7 @@ test("=CLJ cell function", () => {
   assert.deepEqual(plain(gasbb.cell("[{:a 1 :b 2} {:b 3 :a 4} {:a 5}]", [])),
                    [["a", "b"], [1, 2], [4, 3], [5, ""]]);
   assert.equal(gasbb.cell("[{} {}]", []), "");
+  assert.throws(() => gasbb.cell("(range)", []), /CLJ: result has more than 50000 items/);
 });
 
 test("dates pass through", () => {
@@ -179,6 +180,15 @@ test("replEval keeps forms with ::alias keywords, alias/refer, replay errors say
   assert.match(gasbb.replEval(["(def z (inc nope))"], "1").error.message, /While replaying an earlier form/);
   const r3 = gasbb.replEval([], "(ns a (:require [clojure.string :as s])) (def x ::s/y) (println 1) (in-ns 'user) (declare h)");
   assert.deepEqual(Array.from(r3.keep), ["(ns a (:require [clojure.string :as s]))", "(def x ::s/y)", "(in-ns 'user)", "(declare h)"]);
+});
+
+test("replEval keeps the defs that ran before an error", () => {
+  const { gasbb } = newRuntime();
+  const r = gasbb.replEval([], "(ns foo) (defn f [x] (* 2 x)) (f nope)");
+  assert.match(r.error.message, /nope/);
+  assert.deepEqual(Array.from(r.keep), ["(ns foo)", "(defn f [x] (* 2 x))"]);
+  assert.equal(r.ns, "foo");
+  assert.equal(gasbb.replEval(Array.from(r.keep), "(f 21)").value, "42");
 });
 
 test("reader conditionals take the :cljs branch", () => {

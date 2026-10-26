@@ -200,51 +200,46 @@
                           "extend-type"} n)
              (str/starts-with? n "def")))))
 
-(defn- ns-switch
-  "The namespace symbol that `form` switches to, for `(ns x ...)` and
-  `(in-ns 'x)`."
-  [form]
-  (when (seq? form)
-    (case (some-> (first form) name)
-      "ns" (second form)
-      "in-ns" (let [x (second form)] (if (seq? x) (second x) x))
-      nil)))
-
-(defn- def-sources
-  "Source strings of the top-level ns/require/def... forms in `code`: what a
-  REPL session has to replay to get back to its state. Other top-level forms
-  are left out, so their side effects don't run again. Parsing starts in
-  `the-ns` (where `code` was evaluated) and follows `ns`/`in-ns` forms, so
-  `::alias/kw` resolves. If a form can't be parsed, the rest is dropped."
-  [the-ns code]
-  (let [rdr (sci/source-reader code)]
-    (sci/binding [sci/ns (or the-ns @sci/ns)]
-      (loop [acc []]
-        (let [[form src] (try (sci/parse-next+string @ctx rdr)
-                              (catch :default _ [::sci/eof]))]
-          (if (= ::sci/eof form)
-            acc
-            (do
-              (when-let [target (some->> (ns-switch form) (sci/find-ns @ctx))]
-                (sci/set! sci/ns target))
-              (recur (cond-> acc
-                       ;; the buffer also holds comments in front of the form
-                       (def-form? form)
-                       (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" ""))))))))))))
-
 (defn- eval-in
   "Evaluates `s` starting in namespace `the-ns`; returns {:val :ns}."
   [the-ns s]
   (sci/eval-string+ @ctx s (when the-ns {:ns the-ns})))
+
+(defn- strip-leading-comments [src]
+  ;; the reader's buffer also holds comments in front of the form
+  (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" "")))
+
+(defn- eval-forms
+  "Evaluates the top-level forms of `code` one by one, starting in `the-ns`.
+  Each form is read in the namespace the previous one left, so `::alias/kw`
+  after an `ns` form resolves. Returns {:val :ns}. The source of every
+  ns/require/def... form that ran is added to the `kept` atom and the current
+  namespace kept in `cur-ns`, so both are known when a later form throws."
+  [the-ns code kept cur-ns]
+  (let [rdr (sci/source-reader code)]
+    (loop [the-ns the-ns
+           v nil]
+      (let [[form src] (sci/binding [sci/ns (or the-ns @sci/ns)]
+                         (sci/parse-next+string @ctx rdr))]
+        (if (= ::sci/eof form)
+          {:val v :ns (or the-ns @sci/ns)}
+          (let [{v :val the-ns :ns} (eval-in the-ns src)]
+            (reset! cur-ns the-ns)
+            (when (def-form? form)
+              (swap! kept conj (strip-leading-comments src)))
+            (recur the-ns v)))))))
 
 (defn repl-eval
   "Evaluates `code` after replaying `history` (the def-like forms of earlier
   evals; each Apps Script call is a fresh runtime). The current namespace
   carries over from form to form, so `(ns foo (:require ...))` keeps working.
   Returns a JS object {value, out, error, ns, keep}: `value` printed as EDN,
-  `keep` the def-like forms of `code` to add to the history."
+  `keep` the top-level ns/require/def... forms of `code` that ran, to add to
+  the history (also on error, for the forms before the failing one)."
   [history code]
-  (let [out (atom [])]
+  (let [out (atom [])
+        kept (atom [])
+        cur-ns (atom nil)]
     (sci/binding [sci/print-fn #(swap! out conj %)
                   sci/print-err-fn #(swap! out conj %)
                   sio/print-newline true]
@@ -259,15 +254,17 @@
                                                         (error-message e))
                                                    {:form h})))))
                              nil history)
-              start-ns the-ns
-              {v :val the-ns :ns} (eval-in the-ns code)]
+              _ (reset! cur-ns the-ns)
+              {v :val the-ns :ns} (eval-forms the-ns code kept cur-ns)]
           #js {:value (binding [*print-length* 100] (pr-str v))
                :out (str/join @out)
                :ns (str the-ns)
-               :keep (into-array (def-sources start-ns code))})
+               :keep (into-array @kept)})
         (catch :default e
           #js {:error (clj->js (error-data e))
-               :out (str/join @out)})))))
+               :out (str/join @out)
+               :ns (some-> @cur-ns str)
+               :keep (into-array @kept)})))))
 
 (defn ^:export init []
   (set! (.-gasbb js/globalThis)
