@@ -208,13 +208,14 @@ test("SCI functions work when called later, outside an eval", () => {
   const { gasbb } = newRuntime();
   assert.equal(gasbb.cell("(eval '(+ 1 2))", []), 3);
   assert.equal(gasbb.cell("(do (defrecord R [a]) (:a (->R 5)))", []), 5);
-  assert.equal(gasbb.replEval([], "(set! *data-readers* {'x identity}) :ok").value, ":ok");
+  assert.equal(gasbb.replEval([], "(set! *data-readers* {'x identity}) #x 1").value, "1");
 });
 
 test("huge values are printed with a limit", () => {
   const { gasbb } = newRuntime();
   assert.ok(gasbb.replEval([], "(repeat (repeat (repeat (repeat (range)))))").value.length <= 100000);
   assert.equal(gasbb.cell('(apply str (repeat 60000 "a"))', []).length, 50000);
+  assert.equal(gasbb.cell('(keyword (apply str (repeat 60000 "a")))', []).length, 50000);
 });
 
 test("reader conditionals take the :cljs branch", () => {

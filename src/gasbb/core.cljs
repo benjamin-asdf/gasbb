@@ -222,25 +222,25 @@
   namespace kept in `cur-ns`, so both are known when a later form throws."
   [the-ns code kept cur-ns]
   (let [rdr (sci/source-reader code)]
-    (loop [the-ns the-ns
-           v nil]
-      (let [[form src] (sci/binding [sci/ns (or the-ns @sci/ns)]
-                         (sci/parse-next+string @ctx rdr))]
-        (if (= ::sci/eof form)
-          {:val v :ns (or the-ns @sci/ns)}
-          ;; evaluating the parsed form (not its text again) keeps the
-          ;; reader's positions, so stack traces show lines of `code`
-          (let [src (strip-leading-comments src)
-                [v the-ns] (sci/binding [sci/ns (or the-ns @sci/ns)
-                                         ;; like sci/eval-string*, so that
-                                         ;; (set! *data-readers* ..) works
-                                         sci.impl.parser/data-readers @sci.impl.parser/data-readers]
-                             (let [v (sci/eval-form @ctx form)]
-                               [v @sci/ns]))]
-            (reset! cur-ns the-ns)
-            (when (def-form? form)
-              (swap! kept conj src))
-            (recur the-ns v)))))))
+    ;; one binding around reading and evaluating all forms, like
+    ;; sci/eval-string*, so (set! *data-readers* ..) holds for later forms
+    (sci/binding [sci.impl.parser/data-readers @sci.impl.parser/data-readers]
+      (loop [the-ns the-ns
+             v nil]
+        (let [[form src] (sci/binding [sci/ns (or the-ns @sci/ns)]
+                           (sci/parse-next+string @ctx rdr))]
+          (if (= ::sci/eof form)
+            {:val v :ns (or the-ns @sci/ns)}
+            ;; evaluating the parsed form (not its text again) keeps the
+            ;; reader's positions, so stack traces show lines of `code`
+            (let [src (strip-leading-comments src)
+                  [v the-ns] (sci/binding [sci/ns (or the-ns @sci/ns)]
+                               (let [v (sci/eval-form @ctx form)]
+                                 [v @sci/ns]))]
+              (reset! cur-ns the-ns)
+              (when (def-form? form)
+                (swap! kept conj src))
+              (recur the-ns v))))))))
 
 (defn repl-eval
   "Evaluates `code` after replaying `history` (the def-like forms of earlier

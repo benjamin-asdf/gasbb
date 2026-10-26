@@ -56,14 +56,18 @@
           (str (subs (.join parts "") 0 (- limit 3)) "...")
           (throw e))))))
 
+(defn- cap
+  "A cell holds at most 50000 characters."
+  [s]
+  (if (> (count s) 50000) (str (subs s 0 49997) "...") s))
+
 (defn- cell-scalar [x]
   (cond
     (nil? x) ""
-    ;; a cell holds at most 50000 characters
-    (string? x) (if (> (count x) 50000) (str (subs x 0 49997) "...") x)
+    (string? x) (cap x)
     (or (number? x) (boolean? x) (inst? x)) x
-    (keyword? x) (->js x)
-    (symbol? x) (str x)
+    (keyword? x) (cap (->js x))
+    (symbol? x) (cap (str x))
     :else (pr-str-limited x 50000)))
 
 (defn- row [x]

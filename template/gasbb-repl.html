@@ -44,6 +44,7 @@
   var code = document.getElementById("code");
   var btn = document.getElementById("eval");
   var hint = document.getElementById("hint");
+  var resetBtn = document.getElementById("reset");
 
   function add(cls, text) {
     var d = document.createElement("div");
@@ -65,10 +66,12 @@
     entry.appendChild(add("in", currentNs + "=> " + src));
     log.appendChild(entry);
     btn.disabled = true;
+    resetBtn.disabled = true;
     var t0 = Date.now();
     google.script.run
       .withSuccessHandler(function (r) {
         btn.disabled = false;
+        resetBtn.disabled = false;
         if (r.out) entry.appendChild(add("out", r.out.replace(/\n$/, "")));
         var kept = r.keep || [];
         // an input that failed halfway kept its first forms; remember them so
@@ -90,6 +93,7 @@
       })
       .withFailureHandler(function (e) {
         btn.disabled = false;
+        resetBtn.disabled = false;
         entry.appendChild(add("err", String(e && e.message || e)));
       })
       .gasbbReplEval(defs, src);
@@ -100,7 +104,7 @@
   code.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); evaluate(); }
   });
-  document.getElementById("reset").addEventListener("click", function () {
+  resetBtn.addEventListener("click", function () {
     defs = [];
     currentNs = "user";
     lastFailed = null;
