@@ -5,3 +5,4 @@ dist/manifest.edn
 .clasp.json
 .cpcache/
 .gasbb-dev.json
+__pycache__/
