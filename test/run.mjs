@@ -177,6 +177,8 @@ test("replEval keeps forms with ::alias keywords, alias/refer, replay errors say
   assert.equal(r2.keep.length, 2);
   assert.equal(gasbb.replEval(Array.from(r2.keep), "j").value, ":clojure.string/a");
   assert.match(gasbb.replEval(["(def z (inc nope))"], "1").error.message, /While replaying an earlier form/);
+  const r3 = gasbb.replEval([], "(ns a (:require [clojure.string :as s])) (def x ::s/y) (println 1) (in-ns 'user) (declare h)");
+  assert.deepEqual(Array.from(r3.keep), ["(ns a (:require [clojure.string :as s]))", "(def x ::s/y)", "(in-ns 'user)", "(declare h)"]);
 });
 
 test("reader conditionals take the :cljs branch", () => {

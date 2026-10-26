@@ -196,28 +196,41 @@
        (symbol? (first form))
        (let [n (name (first form))]
          (or (contains? #{"ns" "in-ns" "require" "import" "alias" "refer" "use"
-                          "refer-clojure"} n)
+                          "refer-clojure" "declare" "extend" "extend-protocol"
+                          "extend-type"} n)
              (str/starts-with? n "def")))))
+
+(defn- ns-switch
+  "The namespace symbol that `form` switches to, for `(ns x ...)` and
+  `(in-ns 'x)`."
+  [form]
+  (when (seq? form)
+    (case (some-> (first form) name)
+      "ns" (second form)
+      "in-ns" (let [x (second form)] (if (seq? x) (second x) x))
+      nil)))
 
 (defn- def-sources
   "Source strings of the top-level ns/require/def... forms in `code`: what a
   REPL session has to replay to get back to its state. Other top-level forms
-  are left out, so their side effects don't run again. `code` is parsed in
-  `the-ns`, the namespace it was evaluated in, so `::alias/kw` resolves; if it
-  still can't be parsed, all of it is kept rather than losing definitions."
+  are left out, so their side effects don't run again. Parsing starts in
+  `the-ns` (where `code` was evaluated) and follows `ns`/`in-ns` forms, so
+  `::alias/kw` resolves. If a form can't be parsed, the rest is dropped."
   [the-ns code]
-  (try
-    (sci/binding [sci/ns the-ns]
-      (let [rdr (sci/source-reader code)]
-        (loop [acc []]
-          (let [[form src] (sci/parse-next+string @ctx rdr)]
-            (if (= ::sci/eof form)
-              acc
+  (let [rdr (sci/source-reader code)]
+    (sci/binding [sci/ns (or the-ns @sci/ns)]
+      (loop [acc []]
+        (let [[form src] (try (sci/parse-next+string @ctx rdr)
+                              (catch :default _ [::sci/eof]))]
+          (if (= ::sci/eof form)
+            acc
+            (do
+              (when-let [target (some->> (ns-switch form) (sci/find-ns @ctx))]
+                (sci/set! sci/ns target))
               (recur (cond-> acc
                        ;; the buffer also holds comments in front of the form
                        (def-form? form)
-                       (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" ""))))))))))
-    (catch :default _ [code])))
+                       (conj (str/trim (str/replace src #"^(\s*;[^\n]*(\n|$))+" ""))))))))))))
 
 (defn- eval-in
   "Evaluates `s` starting in namespace `the-ns`; returns {:val :ns}."
@@ -246,11 +259,12 @@
                                                         (error-message e))
                                                    {:form h})))))
                              nil history)
+              start-ns the-ns
               {v :val the-ns :ns} (eval-in the-ns code)]
           #js {:value (binding [*print-length* 100] (pr-str v))
                :out (str/join @out)
                :ns (str the-ns)
-               :keep (into-array (def-sources the-ns code))})
+               :keep (into-array (def-sources start-ns code))})
         (catch :default e
           #js {:error (clj->js (error-data e))
                :out (str/join @out)})))))

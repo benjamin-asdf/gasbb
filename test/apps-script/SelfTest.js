@@ -31,6 +31,7 @@ function gasbbSelfTest() {
     return eq(gasbb.replEval(Array.from(r1.keep), '(s/upper-case "x")').value, '"X"');
   });
   check("cell table from maps", () => eq(gasbb.cell("[{:a 1 :b 2} {:b 3 :a 4}]", []), [["a", "b"], [1, 2], [4, 3]]));
+  check("no setTimeout in Apps Script", () => eq(typeof setTimeout, "undefined"));
   check("error message", () => eq(gasbb.replEval([], "(inc y)").error.message, "Unable to resolve symbol: y"));
   return { version: gasbb.version, results };
 }
