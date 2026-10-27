@@ -177,6 +177,24 @@ npm test             # dist/gasbb.js in a bare V8 context with fake Apps Script 
 self test (`gasbbSelfTest`). For that, the script's GCP project must be the one your OAuth
 client belongs to.
 
+## Prior work
+
+ClojureScript on Apps Script has been done before, compiled ahead of time: you build the
+JS bundle and paste or push it into the project. gasbb takes the other route, interpreting
+`.clj` source at runtime, so there is no build step and code can be evaluated from a cell or
+a REPL.
+
+- [plexus/gas-of-life](https://github.com/plexus/gas-of-life) (2016): Game of Life in a
+  Google Sheet, with a demo spreadsheet.
+- [plexus/attendomat](https://github.com/plexus/attendomat) (2017): a Sheets extension that
+  managed attendees for ClojureBridge Berlin.
+- [whitecoop/cljs-apps-script](https://github.com/whitecoop/cljs-apps-script) (2016): a
+  minimal example of exporting ClojureScript functions to Apps Script.
+- [chrisfarnham/cljs_clamp](https://github.com/chrisfarnham/cljs_clamp) (2019):
+  ClojureScript deployed with clasp.
+- [kovasap/autojournal-on-gas](https://github.com/kovasap/autojournal-on-gas): a larger
+  app, built with shadow-cljs.
+
 ## License
 
 EPL-1.0, like SCI.
