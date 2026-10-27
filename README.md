@@ -146,9 +146,13 @@ forms are kept (`(do (def a 1))` is not), and the forms that ran before an error
 
 ## Limitations
 
-- SCI is not the full Clojure: no `deftype` that Apps Script could see as a class, and
-  interpretation is slower than compiled code. Fine for scripting, but don't put a tight loop
-  over 100k cells in it. Use `getValues`/`setValues` in bulk, as you would from JS anyway.
+- SCI is not the full Clojure: no `deftype` that Apps Script could see as a class.
+- Speed is rarely the issue. Measured inside Apps Script, going over 100k cell values (a
+  1000×100 `getValues` array) takes 3–40 ms in SCI, depending on the idiom (`reduce` over
+  the JS arrays is fastest, `js->clj` first is slowest), against ~1 ms for a plain JS loop.
+  The expensive part is the spreadsheet calls themselves: read and write with
+  `getValues`/`setValues` in bulk, not one `getRange` per cell, as you would from JS anyway.
+  (`scripts/gas.py push --test && scripts/gas.py bench` reproduces the numbers.)
 - There is no `setTimeout` in Apps Script, so anything timer-based won't run.
 - Custom functions (`=CLJ`) run with the
   [usual restrictions](https://developers.google.com/apps-script/guides/sheets/functions):

@@ -7,6 +7,7 @@ application-default login.
   scripts/gas.py create "gasbb demo"   new spreadsheet + bound script, state in .gasbb-dev.json
   scripts/gas.py push [--test]         upload dist/gasbb.js + template/ (+ test/apps-script/)
   scripts/gas.py test                  run gasbbSelfTest() in Apps Script and print the report
+  scripts/gas.py bench                 run gasbbBench() (SCI vs JS over 100k cells), print timings
 
 File mapping: *.js/*.gs -> SERVER_JS, *.html -> HTML, *.clj -> HTML named
 "x.clj" (gasbb reads it through HtmlService), appsscript.json -> manifest.
@@ -88,6 +89,14 @@ def main(argv):
             print(f"{'ok  ' if t['ok'] else 'FAIL'} {t['ms']:>5} ms  {t['name']}"
                   + (f"\n      {t['error']}" if not t["ok"] else f"  -> {t['value']}"))
         sys.exit(1 if bad else 0)
+    elif cmd == "bench":
+        state = json.loads(STATE.read_text())
+        r = call(f"https://script.googleapis.com/v1/scripts/{state['scriptId']}:run",
+                 {"function": "gasbbBench", "devMode": True})
+        if "error" in r:
+            print(json.dumps(r["error"], indent=2))
+            sys.exit(1)
+        print("\n".join(r["response"]["result"]))
     else:
         print(__doc__)
 
