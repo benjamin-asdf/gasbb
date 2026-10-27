@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "build": "shadow-cljs release gasbb",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "bench": "node test/bench.mjs"
   },
   "devDependencies": {
     "shadow-cljs": "3.5.8"

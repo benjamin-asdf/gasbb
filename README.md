@@ -152,7 +152,8 @@ forms are kept (`(do (def a 1))` is not), and the forms that ran before an error
   the JS arrays is fastest, `js->clj` first is slowest), against ~1 ms for a plain JS loop.
   The expensive part is the spreadsheet calls themselves: read and write with
   `getValues`/`setValues` in bulk, not one `getRange` per cell, as you would from JS anyway.
-  (`scripts/gas.py push --test && scripts/gas.py bench` reproduces the numbers.)
+  (`scripts/gas.py push --test && scripts/gas.py bench` reproduces the numbers in Apps Script,
+  `npm run bench` the same cases in Node.)
 - There is no `setTimeout` in Apps Script, so anything timer-based won't run.
 - Custom functions (`=CLJ`) run with the
   [usual restrictions](https://developers.google.com/apps-script/guides/sheets/functions):
